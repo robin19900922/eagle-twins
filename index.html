@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人体内脏3D可视化</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Microsoft YaHei', sans-serif; 
+            background: #fff; 
+            min-height: 100vh; 
+            overflow: hidden; 
+        }
+        #container { width: 100vw; height: 100vh; }
+        #loading { 
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            color: #333; font-size: 24px; z-index: 1000; 
+        }
+        #indicator-panel {
+            position: fixed; top: 20px; left: 20px;
+            background: rgba(255, 255, 255, 0.98);
+            padding: 15px; color: #333;
+            border: 1px solid #999;
+            max-height: 85vh; overflow-y: auto; width: 280px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        #indicator-panel h3 { margin-bottom: 10px; color: #333; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 8px; }
+        .indicator-group { margin-bottom: 12px; }
+        .indicator-group-title { font-size: 11px; color: #666; margin-bottom: 5px; font-weight: bold; }
+        .indicator-row { display: flex; align-items: center; margin: 3px 0; font-size: 11px; }
+        .indicator-name { width: 90px; flex-shrink: 0; }
+        .indicator-value { width: 60px; text-align: center; font-size: 11px; padding: 2px; }
+        .indicator-value::-webkit-outer-spin-button,
+        .indicator-value::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .indicator-value { -moz-appearance: textfield; }
+        .indicator-status { width: 8px; height: 8px; border-radius: 50%; margin-left: 5px; }
+        .status-normal { background: #4CAF50; }
+        .status-abnormal { background: #f44336; box-shadow: 0 0 5px #f44336; }
+        .status-monitoring { background: #00ccff; animation: blink 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .indicator-value-monitoring { animation: blink 1s infinite; border: 1px solid #00ccff; }
+        .indicator-monitoring-label { color: #00ccff; font-size: 9px; margin-left: 3px; white-space: nowrap; }
+        #trend-modal { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(5, 15, 30, 0.95); z-index: 1000; backdrop-filter: blur(10px); }
+        #trend-modal.show { display: flex; justify-content: center; align-items: center; }
+        #trend-content { background: linear-gradient(135deg, rgba(10, 25, 50, 0.9) 0%, rgba(20, 40, 80, 0.85) 100%); border: 1px solid rgba(100, 200, 255, 0.3); border-radius: 16px; padding: 25px; width: calc(100vw - 80px); height: calc(100vh - 80px); box-sizing: border-box; box-shadow: 0 0 40px rgba(0, 150, 255, 0.15), inset 0 0 60px rgba(0, 100, 200, 0.05); overflow: hidden; display: flex; flex-direction: column; }
+        #trend-charts { flex: 1; overflow-y: auto; padding-right: 10px; }
+        #trend-charts::-webkit-scrollbar { width: 6px; }
+        #trend-charts::-webkit-scrollbar-track { background: rgba(0, 50, 100, 0.2); border-radius: 3px; }
+        #trend-charts::-webkit-scrollbar-thumb { background: rgba(100, 200, 255, 0.4); border-radius: 3px; }
+        #trend-content h2 { color: #e0f0ff; text-align: center; margin-bottom: 20px; font-weight: 300; letter-spacing: 2px; text-shadow: 0 0 20px rgba(100, 200, 255, 0.5); font-size: 18px; flex-shrink: 0; }
+        .trend-chart-container { background: rgba(0, 30, 60, 0.4); border: 1px solid rgba(100, 180, 255, 0.15); border-radius: 12px; padding: 15px; margin-bottom: 15px; backdrop-filter: blur(5px); }
+        .trend-chart-title { color: #a0d0ff; font-size: 13px; margin-bottom: 10px; font-weight: 500; letter-spacing: 1px; }
+        #analysis-panel { background: linear-gradient(135deg, rgba(180, 60, 60, 0.3) 0%, rgba(120, 40, 40, 0.4) 100%); border: 1px solid rgba(255, 100, 100, 0.4); border-radius: 10px; padding: 15px; margin-bottom: 20px; }
+        #analysis-panel h3 { color: #ffaa80; font-size: 15px; margin-bottom: 10px; font-weight: 600; }
+        #analysis-text { color: #ffd0c0; font-size: 13px; line-height: 1.6; margin: 0; }
+        .trend-chart { background: transparent; }
+        .trend-axis { color: #6080a0; font-size: 10px; }
+        #close-trend { position: absolute; top: 25px; right: 30px; padding: 10px 25px; background: linear-gradient(135deg, rgba(100, 200, 255, 0.2), rgba(60, 150, 220, 0.3)); border: 1px solid rgba(100, 200, 255, 0.4); cursor: pointer; font-size: 13px; color: #c0e0ff; border-radius: 6px; transition: all 0.3s; }
+        #close-trend:hover { background: linear-gradient(135deg, rgba(100, 200, 255, 0.4), rgba(60, 150, 220, 0.5)); box-shadow: 0 0 15px rgba(100, 200, 255, 0.3); }
+        #trend-btn { position: fixed; top: 20px; right: 260px; padding: 10px 20px; background: linear-gradient(135deg, rgba(0, 150, 200, 0.8), rgba(0, 100, 180, 0.9)); border: 1px solid rgba(100, 200, 255, 0.5); cursor: pointer; color: #fff; border-radius: 6px; z-index: 101; font-size: 13px; box-shadow: 0 0 20px rgba(0, 150, 255, 0.3); transition: all 0.3s; }
+        #trend-btn:hover { box-shadow: 0 0 25px rgba(0, 150, 255, 0.5); transform: translateY(-1px); }
+        #controls { 
+            position: fixed; top: 20px; right: 20px; 
+            background: rgba(255, 255, 255, 0.95); 
+            padding: 15px; color: #333; z-index: 100; 
+            border: 1px solid #999; 
+            max-height: 80vh; overflow-y: auto; width: 220px; 
+        }
+        #controls h3 { margin-bottom: 10px; color: #333; font-size: 14px; }
+        .organ-toggle { display: flex; align-items: center; margin: 4px 0; font-size: 11px; color: #333; }
+        .organ-toggle input { margin-right: 8px; }
+        #title { position: fixed; top: 20px; left: 310px; color: #333; font-size: 24px; z-index: 100; }
+        #info { position: fixed; bottom: 20px; left: 20px; color: #666; font-size: 12px; z-index: 100; }
+    </style>
+</head>
+<body>
+    <div id="title">晶捷数据孪生系统</div>
+    <div id="loading">系统加载中...</div>
+    <div id="container"></div>
+    
+    <div id="indicator-panel">
+        <h3>生化指标控制</h3>
+        <div id="indicator-list"></div>
+    </div>
+    
+    <div id="controls"><h3>器官显示控制</h3><div id="organ-list"></div></div>
+    <button id="toggle-panel-btn" style="position:fixed;top:20px;right:20px;padding:8px 12px;z-index:101;cursor:pointer;background:#f0f0f0;border:1px solid #999;">隐藏面板</button>
+    <button id="trend-btn">动态监测趋势</button>
+    <div id="trend-modal">
+        <div id="trend-content">
+            <button id="close-trend">关闭</button>
+            <h2>动态监测趋势 (过去24小时)</h2>
+            <div id="analysis-panel">
+                <h3>晶捷大模型分析</h3>
+                <p id="analysis-text">晶捷智能系统提醒您，您过去24小时的血肌酐显著升高，提示明确肾功能损伤，其余指标均正常。请立即前往肾内科就诊，完善检查明确病因；居家规避肾毒性药物，低盐低蛋白饮食，避免劳累、感染加重肾损伤。</p>
+            </div>
+            <div id="trend-charts"></div>
+        </div>
+    </div>
+    <div id="info">左键旋转 | 滚轮缩放 | 右键平移</div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xffffff);
+        scene.fog = new THREE.FogExp2(0xffffff, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 0, 10);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        document.getElementById('container').appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 4.0;
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        scene.add(ambientLight);
+
+        const light1 = new THREE.PointLight(0xffffff, 1, 30);
+        light1.position.set(10, 10, 10);
+        scene.add(light1);
+
+        const light2 = new THREE.PointLight(0xffffff, 0.5, 30);
+        light2.position.set(-10, 5, -10);
+        scene.add(light2);
+
+        const light3 = new THREE.PointLight(0xffffff, 0.3, 30);
+        light3.position.set(0, -10, 15);
+        scene.add(light3);
+
+        const grid = new THREE.GridHelper(40, 40, 0xcccccc, 0xeeeeee);
+        grid.position.y = -8;
+        scene.add(grid);
+
+        const organMeshes = [];
+        const organColor = 0x88aadd;
+        const bodyColor = 0x6699ff;
+        
+        const organColors = {
+            15: 0xddaadd,
+            16: 0xddddaa,
+            17: 0xaaddaa,
+            18: 0x88ccdd,
+            19: 0x9944aa,
+            20: 0xddcc88,
+            21: 0xdddd66,
+            22: 0xccaa88,
+            23: 0xccaa88,
+            24: 0xdd8888,
+            25: 0xcccccc,
+            26: 0x88aacc,
+            27: 0xddccaa,
+            28: 0xdd8888,
+            29: 0x88dddd,
+            30: 0xcc6666,
+            31: 0x6688cc,
+            32: 0xcc6666,
+            33: 0xddcc66,
+            34: 0xddcc66,
+            35: 0x88cc88,
+            36: 0x88cc88
+        };
+        const dangerColor = 0xff0000;
+        const dangerEmissive = 0xff0000;
+
+        const keepRanges = [];
+        for (let i = 15; i <= 36; i++) keepRanges.push(i);
+        for (let i = 42; i <= 54; i++) keepRanges.push(i);
+
+        const organNames = {
+            0: { en: 'Heart', cn: '心脏' },
+            1: { en: 'Coccygeal_Nerve_L', cn: '尾神经左' },
+            2: { en: 'Spinal_Cord', cn: '脊髓' },
+            3: { en: 'Cranial_Nerves_L', cn: '颅神经左' },
+            4: { en: 'Autonomic_Nervous_Sys', cn: '自主神经系统' },
+            5: { en: 'Coccygeal_Nerve_R', cn: '尾神经右' },
+            6: { en: 'Cranial_Nerves_R', cn: '颅神经右' },
+            7: { en: 'Sacral_Nerves_R', cn: '骶神经右' },
+            8: { en: 'Sacral_Nerves_L', cn: '骶神经左' },
+            9: { en: 'Thoracic_Nerves_L', cn: '胸神经左' },
+            10: { en: 'Thoracic_Nerves_R', cn: '胸神经右' },
+            11: { en: 'Lumbar_Nerves_L1', cn: '腰神经左' },
+            12: { en: 'Lumbar_Nerves_R1', cn: '腰神经右' },
+            13: { en: 'Cervical_Nerves_R1', cn: '颈神经右' },
+            14: { en: 'Cervical_Nerves_L1', cn: '颈神经左' },
+            15: { en: 'Appendix', cn: '阑尾' },
+            16: { en: 'Falciform_ligament', cn: '镰状韧带' },
+            17: { en: 'Gull_Bladder', cn: '胆囊' },
+            18: { en: 'Liver', cn: '肝脏' },
+            19: { en: 'Spleen', cn: '脾脏' },
+            20: { en: 'Digestive1', cn: '消化系统' },
+            21: { en: 'Pancreas1', cn: '胰腺' },
+            22: { en: 'Colon1_1', cn: '结肠1' },
+            23: { en: 'Colon1_2', cn: '结肠2' },
+            24: { en: 'Larynx', cn: '喉' },
+            25: { en: 'Windpipe', cn: '气管' },
+            26: { en: 'Lungs1', cn: '肺' },
+            27: { en: 'Diaphram1', cn: '膈肌' },
+            28: { en: 'Tyroid_Gland', cn: '甲状腺' },
+            29: { en: 'Bladder', cn: '膀胱' },
+            30: { en: 'Kidney_L', cn: '左肾' },
+            31: { en: 'Prostate_gland', cn: '前列腺' },
+            32: { en: 'Kidney_R', cn: '右肾' },
+            33: { en: 'Suprarenal_gland_L', cn: '左肾上腺' },
+            34: { en: 'Suprarenal_gland_R', cn: '右肾上腺' },
+            35: { en: 'Urethra_Left', cn: '左尿道' },
+            36: { en: 'Urethra_Right', cn: '右尿道' },
+            37: { en: 'Iris_L', cn: '左虹膜' },
+            38: { en: 'Iris_R', cn: '右虹膜' },
+            39: { en: 'Lens_L', cn: '左晶状体' },
+            40: { en: 'Lens_R', cn: '右晶状体' },
+            41: { en: 'Optic_Chiasm', cn: '视交叉' },
+            42: { en: 'Parotid_Duct_L', cn: '左腮腺管' },
+            43: { en: 'Parotid_Duct_R', cn: '右腮腺管' },
+            44: { en: 'Parotid_Gland_L', cn: '左腮腺' },
+            45: { en: 'Parotid_Gland_R', cn: '右腮腺' },
+            46: { en: 'Sublingual_Ducts_L', cn: '左舌下腺管' },
+            47: { en: 'Sublingual_Ducts_R', cn: '右舌下腺管' },
+            48: { en: 'Sublingual_Gland_L', cn: '左舌下腺' },
+            49: { en: 'Sublingual_Gland_R', cn: '右舌下腺' },
+            50: { en: 'Submandibular_Duct_L', cn: '左下颌腺管' },
+            51: { en: 'Submandibular_Duct_R', cn: '右下颌腺管' },
+            52: { en: 'SumMandibular_Gland_L', cn: '左下颌腺' },
+            53: { en: 'SumMandibular_Gland_R', cn: '右下颌腺' },
+            54: { en: 'Body', cn: '躯干' },
+            55: { en: 'Sacrum', cn: '骶骨' },
+            56: { en: 'C1', cn: '颈椎1' },
+            57: { en: 'C2', cn: '颈椎2' },
+            58: { en: 'C3', cn: '颈椎3' },
+            59: { en: 'C4', cn: '颈椎4' },
+            60: { en: 'C5', cn: '颈椎5' },
+            61: { en: 'C6', cn: '颈椎6' },
+            62: { en: 'C7', cn: '颈椎7' },
+            63: { en: 'T1', cn: '胸椎1' },
+            64: { en: 'T2', cn: '胸椎2' },
+            65: { en: 'T3', cn: '胸椎3' },
+            66: { en: 'T4', cn: '胸椎4' },
+            67: { en: 'T5', cn: '胸椎5' },
+            68: { en: 'T6', cn: '胸椎6' },
+            69: { en: 'T7', cn: '胸椎7' },
+            70: { en: 'T8', cn: '胸椎8' },
+            71: { en: 'T9', cn: '胸椎9' },
+            72: { en: 'T10', cn: '胸椎10' },
+            73: { en: 'T11', cn: '胸椎11' },
+            74: { en: 'T12', cn: '胸椎12' },
+            75: { en: 'L1', cn: '腰椎1' },
+            76: { en: 'L2', cn: '腰椎2' },
+            77: { en: 'L3', cn: '腰椎3' },
+            78: { en: 'L4', cn: '腰椎4' },
+            79: { en: 'L5', cn: '腰椎5' },
+            80: { en: 'Disc06', cn: '椎间盘6' },
+            81: { en: 'Disc07', cn: '椎间盘7' },
+            82: { en: 'Disc08', cn: '椎间盘8' },
+            83: { en: 'Disc09', cn: '椎间盘9' },
+            84: { en: 'Disc10', cn: '椎间盘10' },
+            85: { en: 'Disc11', cn: '椎间盘11' },
+            86: { en: 'Disc12', cn: '椎间盘12' },
+            87: { en: 'Disc13', cn: '椎间盘13' },
+            88: { en: 'Disc14', cn: '椎间盘14' },
+            89: { en: 'Disc15', cn: '椎间盘15' },
+            90: { en: 'Disc16', cn: '椎间盘16' },
+            91: { en: 'Disc17', cn: '椎间盘17' },
+            92: { en: 'Disc18', cn: '椎间盘18' },
+            93: { en: 'Disc19', cn: '椎间盘19' },
+            94: { en: 'Disc20', cn: '椎间盘20' },
+            95: { en: 'Disc21', cn: '椎间盘21' },
+            96: { en: 'Disc22', cn: '椎间盘22' },
+            97: { en: 'Disc23', cn: '椎间盘23' },
+            98: { en: 'Disc01', cn: '椎间盘1' },
+            99: { en: 'Disc02', cn: '椎间盘2' },
+            100: { en: 'Disc03', cn: '椎间盘3' },
+            101: { en: 'Disc04', cn: '椎间盘4' },
+            102: { en: 'Disc05', cn: '椎间盘5' },
+            103: { en: 'fibula_L', cn: '左腓骨' },
+            104: { en: 'Foot_L1', cn: '左足1' },
+            105: { en: 'Foot_L2', cn: '左足2' },
+            106: { en: 'Foot_L3', cn: '左足3' },
+            107: { en: 'Foot_L4', cn: '左足4' },
+            108: { en: 'Foot_L5', cn: '左足5' },
+            109: { en: 'Foot_L6', cn: '左足6' },
+            110: { en: 'Foot_L7', cn: '左足7' },
+            111: { en: 'Foot_L8', cn: '左足8' },
+            112: { en: 'Foot_L9', cn: '左足9' },
+            113: { en: 'Foot_L10', cn: '左足10' },
+            114: { en: 'Foot_L11', cn: '左足11' },
+            115: { en: 'Foot_L12', cn: '左足12' },
+            116: { en: 'Foot_L13', cn: '左足13' },
+            117: { en: 'Foot_L14', cn: '左足14' },
+            118: { en: 'Foot_L15', cn: '左足15' },
+            119: { en: 'Foot_L16', cn: '左足16' },
+            120: { en: 'Foot_L17', cn: '左足17' },
+            121: { en: 'Foot_L18', cn: '左足18' },
+            122: { en: 'Foot_L19', cn: '左足19' },
+            123: { en: 'Foot_L20', cn: '左足20' },
+            124: { en: 'Foot_L21', cn: '左足21' },
+            125: { en: 'Foot_L22', cn: '左足22' },
+            126: { en: 'Foot_L23', cn: '左足23' },
+            127: { en: 'Foot_L24', cn: '左足24' },
+            128: { en: 'Foot_L25', cn: '左足25' },
+            129: { en: 'Foot_L26', cn: '左足26' },
+            130: { en: 'patella_L', cn: '左髌骨' },
+            131: { en: 'tibia_L', cn: '左胫骨' },
+            132: { en: 'femur_L', cn: '左股骨' },
+            133: { en: 'Ilium_L', cn: '左髂骨' },
+            134: { en: 'fibula_R1', cn: '右腓骨' },
+            135: { en: 'Foot_R1', cn: '右足1' },
+            136: { en: 'Foot_R2', cn: '右足2' },
+            137: { en: 'Foot_R3', cn: '右足3' },
+            138: { en: 'Foot_R4', cn: '右足4' },
+            139: { en: 'Foot_R5', cn: '右足5' },
+            140: { en: 'Foot_R6', cn: '右足6' },
+            141: { en: 'Foot_R7', cn: '右足7' },
+            142: { en: 'Foot_R8', cn: '右足8' },
+            143: { en: 'Foot_R9', cn: '右足9' },
+            144: { en: 'Foot_R10', cn: '右足10' },
+            145: { en: 'Foot_R11', cn: '右足11' },
+            146: { en: 'Foot_R12', cn: '右足12' },
+            147: { en: 'Foot_R13', cn: '右足13' },
+            148: { en: 'Foot_R14', cn: '右足14' },
+            149: { en: 'Foot_R15', cn: '右足15' },
+            150: { en: 'Foot_R16', cn: '右足16' },
+            151: { en: 'Foot_R17', cn: '右足17' },
+            152: { en: 'Foot_R18', cn: '右足18' },
+            153: { en: 'Foot_R19', cn: '右足19' },
+            154: { en: 'Foot_R20', cn: '右足20' },
+            155: { en: 'Foot_R21', cn: '右足21' },
+            156: { en: 'Foot_R22', cn: '右足22' },
+            157: { en: 'Foot_R23', cn: '右足23' },
+            158: { en: 'Foot_R24', cn: '右足24' },
+            159: { en: 'Foot_R25', cn: '右足25' },
+            160: { en: 'Foot_R26', cn: '右足26' },
+            161: { en: 'patella_R1', cn: '右髌骨' },
+            162: { en: 'tibia_R1', cn: '右胫骨' },
+            163: { en: 'femur_R', cn: '右股骨' },
+            164: { en: 'Ilium_R', cn: '右髂骨' },
+            165: { en: 'Humerus_R1', cn: '右肱骨' },
+            166: { en: 'Ulna_R1', cn: '右尺骨' },
+            167: { en: 'Radius_R1', cn: '右桡骨' },
+            168: { en: 'Hand_R1', cn: '右手1' },
+            169: { en: 'Hand_R2', cn: '右手2' },
+            170: { en: 'Hand_R3', cn: '右手3' },
+            171: { en: 'Hand_R4', cn: '右手4' },
+            172: { en: 'Hand_R5', cn: '右手5' },
+            173: { en: 'Hand_R6', cn: '右手6' },
+            174: { en: 'Hand_R7', cn: '右手7' },
+            175: { en: 'Hand_R8', cn: '右手8' },
+            176: { en: 'Hand_R9', cn: '右手9' },
+            177: { en: 'Hand_R10', cn: '右手10' },
+            178: { en: 'Hand_R11', cn: '右手11' },
+            179: { en: 'Hand_R12', cn: '右手12' },
+            180: { en: 'Hand_R13', cn: '右手13' },
+            181: { en: 'Hand_R14', cn: '右手14' },
+            182: { en: 'Hand_R15', cn: '右手15' },
+            183: { en: 'Hand_R16', cn: '右手16' },
+            184: { en: 'Hand_R17', cn: '右手17' },
+            185: { en: 'Hand_R18', cn: '右手18' },
+            186: { en: 'Hand_R19', cn: '右手19' },
+            187: { en: 'Hand_R20', cn: '右手20' },
+            188: { en: 'Hand_R21', cn: '右手21' },
+            189: { en: 'Hand_R22', cn: '右手22' },
+            190: { en: 'Hand_R23', cn: '右手23' },
+            191: { en: 'Hand_R24', cn: '右手24' },
+            192: { en: 'Hand_R25', cn: '右手25' },
+            193: { en: 'Hand_R26', cn: '右手26' },
+            194: { en: 'Hand_R27', cn: '右手27' },
+            195: { en: 'Scapula_R', cn: '右肩胛骨' },
+            196: { en: 'Clavicle_R', cn: '右锁骨' },
+            197: { en: 'Hand_L27', cn: '左手27' },
+            198: { en: 'Hand_L26', cn: '左手26' },
+            199: { en: 'Hand_L25', cn: '左手25' },
+            200: { en: 'Hand_L24', cn: '左手24' },
+            201: { en: 'Hand_L23', cn: '左手23' },
+            202: { en: 'Hand_L22', cn: '左手22' },
+            203: { en: 'Hand_L21', cn: '左手21' },
+            204: { en: 'Hand_L20', cn: '左手20' },
+            205: { en: 'Hand_L19', cn: '左手19' },
+            206: { en: 'Hand_L15', cn: '左手15' },
+            207: { en: 'Hand_L14', cn: '左手14' },
+            208: { en: 'Hand_L13', cn: '左手13' },
+            209: { en: 'Hand_L12', cn: '左手12' },
+            210: { en: 'Hand_L11', cn: '左手11' },
+            211: { en: 'Hand_L10', cn: '左手10' },
+            212: { en: 'Hand_L9', cn: '左手9' },
+            213: { en: 'Hand_L8', cn: '左手8' },
+            214: { en: 'Hand_L7', cn: '左手7' },
+            215: { en: 'Hand_L6', cn: '左手6' },
+            216: { en: 'Hand_L5', cn: '左手5' },
+            217: { en: 'Hand_L4', cn: '左手4' },
+            218: { en: 'Hand_L3', cn: '左手3' },
+            219: { en: 'Hand_L2', cn: '左手2' },
+            220: { en: 'Hand_L1', cn: '左手1' },
+            221: { en: 'Hand_L16', cn: '左手16' },
+            222: { en: 'Hand_L17', cn: '左手17' },
+            223: { en: 'Hand_L18', cn: '左手18' },
+            224: { en: 'Humerus_L1', cn: '左肱骨' },
+            225: { en: 'Ulna_L', cn: '左尺骨' },
+            226: { en: 'Radius_L', cn: '左桡骨' },
+            227: { en: 'Scapula_L', cn: '左肩胛骨' },
+            228: { en: 'Clavicle_L', cn: '左锁骨' },
+            229: { en: 'Rib_R1', cn: '右肋骨1' },
+            230: { en: 'Rib_R2', cn: '右肋骨2' },
+            231: { en: 'Rib_R3', cn: '右肋骨3' },
+            232: { en: 'Rib_R4', cn: '右肋骨4' },
+            233: { en: 'Rib_R5', cn: '右肋骨5' },
+            234: { en: 'Rib_R6', cn: '右肋骨6' },
+            235: { en: 'Rib_R7', cn: '右肋骨7' },
+            236: { en: 'Rib_R8', cn: '右肋骨8' },
+            237: { en: 'Rib_R9', cn: '右肋骨9' },
+            238: { en: 'Rib_R10', cn: '右肋骨10' },
+            239: { en: 'Rib_R11', cn: '右肋骨11' },
+            240: { en: 'Rib_R12', cn: '右肋骨12' },
+            241: { en: 'Rib_L1', cn: '左肋骨1' },
+            242: { en: 'Rib_L2', cn: '左肋骨2' },
+            243: { en: 'Rib_L3', cn: '左肋骨3' },
+            244: { en: 'Rib_L4', cn: '左肋骨4' },
+            245: { en: 'Rib_L5', cn: '左肋骨5' },
+            246: { en: 'Rib_L6', cn: '左肋骨6' },
+            247: { en: 'Rib_L7', cn: '左肋骨7' },
+            248: { en: 'Rib_L8', cn: '左肋骨8' },
+            249: { en: 'Rib_L9', cn: '左肋骨9' },
+            250: { en: 'Rib_L10', cn: '左肋骨10' },
+            251: { en: 'Rib_L11', cn: '左肋骨11' },
+            252: { en: 'Rib_L12', cn: '左肋骨12' },
+            253: { en: 'Sternum', cn: '胸骨' },
+            254: { en: 'Costal_Cartilages', cn: '肋软骨' },
+            255: { en: 'Jaw', cn: '下颌骨' },
+            256: { en: 'skull', cn: '颅骨' },
+            257: { en: 'Teeth_Lower', cn: '下牙1' },
+            258: { en: 'Teeth_Lower1', cn: '下牙2' },
+            259: { en: 'Teeth_Lower2', cn: '下牙3' },
+            260: { en: 'Teeth_Lower3', cn: '下牙4' },
+            261: { en: 'Teeth_Lower4', cn: '下牙5' },
+            262: { en: 'Teeth_Lower5', cn: '下牙6' },
+            263: { en: 'Teeth_Lower6', cn: '下牙7' },
+            264: { en: 'Teeth_Lower7', cn: '下牙8' },
+            265: { en: 'Teeth_Lower8', cn: '下牙9' },
+            266: { en: 'Teeth_Lower9', cn: '下牙10' },
+            267: { en: 'Teeth_Lower10', cn: '下牙11' },
+            268: { en: 'Teeth_Lower11', cn: '下牙12' },
+            269: { en: 'Teeth_Lower12', cn: '下牙13' },
+            270: { en: 'Teeth_Lower13', cn: '下牙14' },
+            271: { en: 'Teeth_Lower14', cn: '下牙15' },
+            272: { en: 'Teeth_Lower15', cn: '下牙16' },
+            273: { en: 'Teeth_Top1', cn: '上牙1' },
+            274: { en: 'Teeth_Top2', cn: '上牙2' },
+            275: { en: 'Teeth_Top3', cn: '上牙3' },
+            276: { en: 'Teeth_Top4', cn: '上牙4' },
+            277: { en: 'Teeth_Top5', cn: '上牙5' },
+            278: { en: 'Teeth_Top6', cn: '上牙6' },
+            279: { en: 'Teeth_Top7', cn: '上牙7' },
+            280: { en: 'Teeth_Top8', cn: '上牙8' },
+            281: { en: 'Teeth_Top9', cn: '上牙9' },
+            282: { en: 'Teeth_Top10', cn: '上牙10' },
+            283: { en: 'Teeth_Top11', cn: '上牙11' },
+            284: { en: 'Teeth_Top12', cn: '上牙12' },
+            285: { en: 'Teeth_Top13', cn: '上牙13' },
+            286: { en: 'Teeth_Top14', cn: '上牙14' },
+            287: { en: 'Teeth_Top15', cn: '上牙15' },
+            288: { en: 'Teeth_Top16', cn: '上牙16' },
+            289: { en: 'Cardiovascular_Sys', cn: '心血管系统' }
+        };
+        
+        let heartPosition = null;
+        let heartMesh = null;
+        let heartBaseScale = 1;
+
+        const indicatorData = [
+            { id: 'ALT', name: 'ALT (丙氨酸氨基转移酶)', min: 0, max: 40, default: 25, organs: [18] },
+            { id: 'AST', name: 'AST (天门冬氨酸氨基转移酶)', min: 0, max: 40, default: 25, organs: [18, 0] },
+            { id: 'GGT', name: 'GGT (γ-谷氨酰转肽酶)', min: 0, max: 50, default: 30, organs: [18, 17] },
+            { id: 'TBIL', name: 'TBIL (总胆红素)', min: 3.4, max: 20.5, default: 15, organs: [18, 17] },
+            { id: 'ALB', name: 'ALB (白蛋白)', min: 35, max: 55, default: 45, organs: [18, 30, 32] },
+            { id: 'Scr', name: 'Scr (血肌酐)', min: 44, max: 133, default: 80, organs: [30, 32], monitoring: true, csvName: '血肌酐' },
+            { id: 'BUN', name: 'BUN (尿素氮)', min: 2.9, max: 8.2, default: 5, organs: [30, 32], monitoring: true, csvName: '尿酸氮' },
+            { id: 'CysC', name: 'Cys C (胱抑素C)', min: 0.51, max: 1.09, default: 0.8, organs: [30, 32] },
+            { id: 'cTnI', name: 'cTnI (心肌肌钙蛋白)', min: 0, max: 0.04, default: 0.01, organs: [0] },
+            { id: 'LPS', name: 'LPS (血脂肪酶)', min: 0, max: 60, default: 30, organs: [21] },
+            { id: 'AFP', name: 'AFP (甲胎蛋白)', min: 0, max: 20, default: 5, organs: [18] },
+            { id: 'CEA', name: 'CEA (癌胚抗原)', min: 0, max: 5, default: 2.5, organs: [22, 23, 15, 26] },
+            { id: 'CA199', name: 'CA19-9 (糖类抗原19-9)', min: 0, max: 37, default: 10, organs: [21, 17, 22, 23] },
+            { id: 'GLU', name: 'GLU (血糖)', min: 3.9, max: 6.1, default: 5.0, organs: [21, 18], monitoring: true, csvName: '血糖' },
+            { id: 'UA', name: 'UA (尿酸)', min: 150, max: 440, default: 350, organs: [18, 30, 32], monitoring: true, csvName: '尿酸' },
+            { id: 'TG', name: 'TG (甘油三酯)', min: 0.4, max: 1.7, default: 1.0, organs: [18, 21] },
+            { id: 'K', name: 'K⁺ (血钾)', min: 3.5, max: 5.5, default: 4.0, organs: [30, 32, 0, 33, 34], monitoring: true, csvName: '血钾' },
+            { id: 'Na', name: 'Na⁺ (血钠)', min: 137, max: 147, default: 142, organs: [30, 32, 33, 34], monitoring: true, csvName: '血钠' },
+            { id: 'Cortisol', name: '皮质醇', min: 138, max: 635, default: 400, organs: [33, 34, 18] },
+            { id: 'LAC', name: 'LAC (乳酸)', min: 0.5, max: 2.0, default: 1.0, organs: [18, 30, 32], monitoring: true, csvName: '乳酸' },
+            { id: 'HR', name: 'HR (心率)', min: 60, max: 100, default: 75, organs: [0], monitoring: true, csvName: '心率' },
+            { id: 'BP', name: 'BP (血压)', min: 90, max: 140, default: 120, organs: [0, 30, 32, 33, 34], monitoring: true, csvName: '血压' }
+        ];
+
+        const monitoringIndicators = indicatorData.filter(ind => ind.monitoring).map(ind => ind.csvName);
+        let monitoringData = {};
+        let currentReadIndex = 48;
+
+        const indicatorValues = {};
+        const abnormalOrgans = new Set();
+
+        function createIndicatorPanel() {
+            const list = document.getElementById('indicator-list');
+            const groups = {
+                '肝功能': [0, 1, 2, 3, 4, 10, 11],
+                '肾功能': [5, 6, 7, 17, 18, 19],
+                '心肌标志物': [8, 20, 21],
+                '胰腺/代谢': [9, 12, 13, 14, 15, 16]
+            };
+
+            Object.keys(groups).forEach(groupName => {
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'indicator-group';
+                groupDiv.innerHTML = `<div class="indicator-group-title">${groupName}</div>`;
+                
+                groups[groupName].forEach(idx => {
+                    const ind = indicatorData[idx];
+                    indicatorValues[ind.id] = ind.default;
+                    
+                    const monitoringLabel = ind.monitoring ? '<span class="indicator-monitoring-label">动态监测中</span>' : '';
+                    const statusClass = ind.monitoring ? 'status-monitoring' : 'status-normal';
+                    
+                    const row = document.createElement('div');
+                    row.className = 'indicator-row';
+                    row.innerHTML = `
+                        <span class="indicator-name">${ind.name}</span>
+                        <input type="number" class="indicator-value ${ind.monitoring ? 'indicator-value-monitoring' : ''}" id="value-${ind.id}" value="${ind.default}" step="${(ind.max - ind.min) * 0.1}" min="${ind.min * 0.5}" max="${ind.max * 1.5}">
+                        <div class="indicator-status ${statusClass}" id="status-${ind.id}"></div>
+                        ${monitoringLabel}
+                    `;
+                    groupDiv.appendChild(row);
+                });
+                
+                list.appendChild(groupDiv);
+            });
+
+            document.querySelectorAll('.indicator-value').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    const id = e.target.id.replace('value-', '');
+                    const ind = indicatorData.find(i => i.id === id);
+                    let val = parseFloat(e.target.value);
+                    if (isNaN(val)) val = ind.default;
+                    indicatorValues[id] = val;
+                    checkIndicatorStatus(id);
+                    updateOrganColors();
+                });
+            });
+        }
+
+        function checkIndicatorStatus(id) {
+            const ind = indicatorData.find(i => i.id === id);
+            const value = indicatorValues[id];
+            const isAbnormal = value < ind.min || value > ind.max;
+            
+            document.getElementById(`status-${id}`).className = 'indicator-status ' + (isAbnormal ? 'status-abnormal' : 'status-normal');
+            
+            if (isAbnormal) {
+                ind.organs.forEach(orgNum => abnormalOrgans.add(orgNum));
+            } else {
+                ind.organs.forEach(orgNum => {
+                    const stillAbnormal = indicatorData.some(otherInd => {
+                        if (otherInd.id === id) return false;
+                        const ov = indicatorValues[otherInd.id];
+                        return otherInd.organs.includes(orgNum) && (ov < otherInd.min || ov > otherInd.max);
+                    });
+                    if (!stillAbnormal) abnormalOrgans.delete(orgNum);
+                });
+            }
+        }
+
+        function updateOrganColors() {
+            organMeshes.forEach(organ => {
+                const baseColor = organColors[organ.index] || organColor;
+                if (abnormalOrgans.has(organ.index)) {
+                    organ.mesh.material.color.setHex(dangerColor);
+                    organ.mesh.material.emissive.setHex(dangerEmissive);
+                    organ.mesh.material.emissiveIntensity = 0.5;
+                } else {
+                    organ.mesh.material.color.setHex(baseColor);
+                    organ.mesh.material.emissive.setHex(baseColor);
+                    organ.mesh.material.emissiveIntensity = 0.2;
+                }
+            });
+            
+            if (heartMesh && abnormalOrgans.has(0)) {
+                heartMesh.traverse((child) => {
+                    if (child.isMesh) {
+                        child.material.color.setHex(dangerColor);
+                        child.material.emissive.setHex(dangerEmissive);
+                        child.material.emissiveIntensity = 0.5;
+                    }
+                });
+            } else if (heartMesh) {
+                heartMesh.traverse((child) => {
+                    if (child.isMesh) {
+                        child.material.color.setHex(0xdd4444);
+                        child.material.emissive.setHex(0xdd4444);
+                        child.material.emissiveIntensity = 0.2;
+                    }
+                });
+            }
+        }
+
+        createIndicatorPanel();
+
+        const embeddedCsvData = `,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70
+血肌酐,172.2,171.5,170.8,169.7,168.5,167.3,166.8,165.9,164.7,165.2,164.5,166.1,167.4,168.2,170.1,171.3,173.2,174.5,175.1,176.2,175.3,174.8,176.1,177.2,178.3,179.1,180.2,179.5,178.7,179.2,180.1,181.2,180.5,179.3,178.6,177.5,176.3,175.2,174.1,173.5,172.4,171.6,170.5,169.3,168.2,167.4,166.5,165.8,166.2,167.5,169.3,170.6,172.4,173.7,175.2,176.3,177.4,178.2,179.1,178.5,177.6,178.3,179.2,180.3,179.6,178.4,176.7,175.3,177,175
+尿酸氮,5.1,5,4.8,4.6,4.5,4.3,4.2,4.1,4,4,4.1,4.2,4.4,4.6,4.8,5,5.3,5.5,5.7,5.8,5.7,5.6,5.7,5.9,6.1,6.2,6.1,6,5.8,5.9,6,6.2,6.1,5.9,5.8,5.6,5.4,5.2,5.1,5,4.9,4.7,4.6,4.5,4.3,4.2,4.1,4,4.1,4.2,4.4,4.5,4.7,5,5.2,5.4,5.6,5.7,5.6,5.5,5.6,5.8,6,6.1,6,5.9,5.7,5.5,5.3,5.5
+血钠,140.2,140,139.8,139.6,139.5,139.3,139.2,139,138.9,138.8,138.9,139,139.2,139.3,139.5,139.7,139.9,140.1,140.2,140.3,140.2,140.1,140.2,140.3,140.5,140.4,140.3,140.2,140,140.1,140.2,140.4,140.3,140.2,140,139.9,139.7,139.6,139.5,139.3,139.2,139.1,139,138.9,138.8,138.8,138.9,139,139.2,139.3,139.5,139.7,139.9,140.1,140.2,140.3,140.4,140.3,140.2,140.1,140.2,140.3,140.5,140.4,140.3,140.1,139.9,139.8,139.6,140
+乳酸,1.1,1,0.9,0.8,0.8,0.7,0.7,0.6,0.6,0.6,0.7,0.7,0.8,0.8,0.9,1,1.1,1.2,1.3,1.3,1.2,1.2,1.3,1.3,1.4,1.4,1.3,1.3,1.2,1.2,1.3,1.4,1.4,1.3,1.2,1.1,1.1,1,0.9,0.9,0.8,0.8,0.7,0.7,0.6,0.6,0.6,0.7,0.7,0.8,0.9,0.9,1,1.1,1.2,1.2,1.3,1.3,1.2,1.2,1.3,1.3,1.4,1.4,1.3,1.2,1.1,1,0.9,1.1
+心率,76,75,73,71,69,67,65,64,63,62,62,63,64,66,69,72,75,77,78,79,78,77,78,79,80,79,78,77,76,77,78,79,78,77,75,73,72,70,69,68,66,65,64,63,62,62,63,64,66,68,71,73,75,77,78,79,78,77,78,79,80,79,78,77,76,75,73,71,72,75
+血压,122,121,119,117,115,114,112,111,110,109,110,111,113,115,117,120,122,124,125,126,125,124,125,126,127,126,125,124,123,123,124,126,125,124,122,120,118,117,115,114,112,111,110,109,109,110,111,113,115,117,120,122,124,125,126,125,124,125,126,127,126,125,124,123,122,120,118,116,118,118
+血糖,5.2,5,4.8,4.7,4.6,4.5,4.4,4.3,4.3,4.4,4.5,4.7,5.2,6.1,6.8,6.5,6,5.5,5.3,5.1,5,5.2,5.8,6.7,7,6.6,6.1,5.7,5.4,5.2,5.1,5.3,5.9,6.6,6.9,6.4,5.9,5.5,5.2,5,4.9,4.7,4.6,4.5,4.4,4.4,4.5,4.6,4.8,5.3,6.2,6.9,6.5,6,5.6,5.3,5.1,5,5.2,5.9,6.8,7.1,6.7,6.2,5.7,5.4,5.2,5.7,5.9,6
+尿酸,332,330,328,325,323,320,318,316,315,314,315,317,320,323,326,330,334,337,340,342,341,339,338,340,343,345,344,342,340,339,338,340,342,344,343,341,338,335,333,330,328,325,323,320,318,316,315,315,316,318,321,325,329,333,336,339,341,340,339,340,342,344,345,344,342,340,337,334,331,335
+血钾,4.12,4.1,4.08,4.06,4.05,4.03,4.02,4,3.99,3.98,3.99,4,4.02,4.04,4.06,4.09,4.11,4.13,4.15,4.16,4.15,4.14,4.15,4.16,4.18,4.17,4.16,4.15,4.13,4.12,4.13,4.15,4.17,4.16,4.15,4.13,4.11,4.09,4.07,4.05,4.04,4.02,4.01,4,3.99,3.98,3.98,3.99,4.01,4.03,4.05,4.08,4.1,4.12,4.14,4.16,4.15,4.14,4.13,4.14,4.16,4.18,4.17,4.16,4.14,4.12,4.1,4.08,4.06,4.1`;
+
+        const csvText = embeddedCsvData;
+        const lines = csvText.trim().split('\n');
+        const headers = lines[0].split(',');
+        
+        for (let i = 1; i < lines.length; i++) {
+            const row = lines[i].split(',');
+            if (row.length > 1 && row[0]) {
+                const name = row[0];
+                const data = row.slice(1, 71).map(v => parseFloat(v)).filter(v => !isNaN(v));
+                monitoringData[name] = data;
+            }
+        }
+        
+        setInterval(() => {
+            if (currentReadIndex >= 70) currentReadIndex = 48;
+            
+            monitoringIndicators.forEach(csvName => {
+                const data = monitoringData[csvName];
+                if (data && data[currentReadIndex] !== undefined) {
+                    const ind = indicatorData.find(i => i.csvName === csvName);
+                    if (ind) {
+                        indicatorValues[ind.id] = data[currentReadIndex];
+                        document.getElementById(`value-${ind.id}`).value = data[currentReadIndex].toFixed(1);
+                        checkIndicatorStatus(ind.id);
+                    }
+                }
+            });
+            
+            updateOrganColors();
+            currentReadIndex++;
+        }, 10000);
+
+        document.getElementById('trend-btn').onclick = () => {
+            const modal = document.getElementById('trend-modal');
+            modal.classList.add('show');
+            renderTrendCharts();
+        };
+        
+        document.getElementById('close-trend').onclick = () => {
+            document.getElementById('trend-modal').classList.remove('show');
+        };
+        
+        document.getElementById('trend-modal').onclick = (e) => {
+            if (e.target.id === 'trend-modal') {
+                document.getElementById('trend-modal').classList.remove('show');
+            }
+        };
+        
+        function renderTrendCharts() {
+            const container = document.getElementById('trend-charts');
+            container.innerHTML = '';
+            
+            const now = new Date();
+            const timeLabels = [];
+            for (let i = 47; i >= 0; i--) {
+                const t = new Date(now.getTime() - i * 30 * 60 * 1000);
+                timeLabels.push(`${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`);
+            }
+            
+            monitoringIndicators.forEach(csvName => {
+                const data = monitoringData[csvName];
+                if (!data) return;
+                
+                const ind = indicatorData.find(i => i.csvName === csvName);
+                if (!ind) return;
+                
+                const chartDiv = document.createElement('div');
+                chartDiv.className = 'trend-chart-container';
+                chartDiv.innerHTML = `
+                    <div class="trend-chart-title">${ind.name}</div>
+                    <canvas class="trend-chart" id="chart-${ind.id}" style="width:100%;height:140px;"></canvas>
+                `;
+                container.appendChild(chartDiv);
+                
+                const canvas = chartDiv.querySelector('canvas');
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                
+                const chartData = data.slice(0, 48);
+                const rect = canvas.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+                const width = canvas.width;
+                const height = canvas.height;
+                const padding = { top: 15, right: 15, bottom: 30, left: 45 };
+                const chartWidth = width - padding.left - padding.right;
+                const chartHeight = height - padding.top - padding.bottom;
+                
+                const dataMin = Math.min(...chartData);
+                const dataMax = Math.max(...chartData);
+                const rangeMin = Math.min(dataMin, ind.min);
+                const rangeMax = Math.max(dataMax, ind.max);
+                const padding2 = (rangeMax - rangeMin) * 0.15;
+                const minVal = rangeMin - padding2;
+                const maxVal = rangeMax + padding2;
+                
+                ctx.clearRect(0, 0, width, height);
+                
+                ctx.strokeStyle = 'rgba(80, 120, 160, 0.3)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+                const normalHighY = padding.top + chartHeight - ((ind.max - minVal) / (maxVal - minVal)) * chartHeight;
+                const normalLowY = padding.top + chartHeight - ((ind.min - minVal) / (maxVal - minVal)) * chartHeight;
+                ctx.beginPath();
+                ctx.moveTo(padding.left, normalHighY);
+                ctx.lineTo(width - padding.right, normalHighY);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(padding.left, normalLowY);
+                ctx.lineTo(width - padding.right, normalLowY);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                ctx.fillStyle = 'rgba(100, 200, 150, 0.6)';
+                ctx.font = '10px "Segoe UI", Arial';
+                ctx.fillText(`上限: ${ind.max}`, padding.left + 5, normalHighY - 5);
+                ctx.fillText(`下限: ${ind.min}`, padding.left + 5, normalLowY + 12);
+                
+                const gradient = ctx.createLinearGradient(padding.left, 0, width - padding.right, 0);
+                gradient.addColorStop(0, 'rgba(0, 150, 255, 0.3)');
+                gradient.addColorStop(0.5, 'rgba(0, 200, 255, 0.4)');
+                gradient.addColorStop(1, 'rgba(0, 150, 255, 0.3)');
+                
+                ctx.beginPath();
+                chartData.forEach((val, i) => {
+                    const x = padding.left + (i / 47) * chartWidth;
+                    const y = padding.top + chartHeight - ((val - minVal) / (maxVal - minVal)) * chartHeight;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.strokeStyle = 'rgba(0, 180, 255, 0.8)';
+                ctx.lineWidth = 2.5;
+                ctx.shadowColor = 'rgba(0, 200, 255, 0.6)';
+                ctx.shadowBlur = 8;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                
+                chartData.forEach((val, i) => {
+                    const x = padding.left + (i / 47) * chartWidth;
+                    const y = padding.top + chartHeight - ((val - minVal) / (maxVal - minVal)) * chartHeight;
+                    
+                    if (i === chartData.length - 1) {
+                        ctx.beginPath();
+                        ctx.arc(x, y, 5, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(0, 255, 200, 0.9)';
+                        ctx.shadowColor = 'rgba(0, 255, 200, 0.8)';
+                        ctx.shadowBlur = 15;
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                        
+                        ctx.beginPath();
+                        ctx.arc(x, y, 3, 0, Math.PI * 2);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fill();
+                    } else if (i % 8 === 0) {
+                        ctx.beginPath();
+                        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(0, 180, 255, 0.7)';
+                        ctx.fill();
+                    }
+                });
+                
+                ctx.strokeStyle = 'rgba(80, 120, 160, 0.5)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(padding.left, padding.top);
+                ctx.lineTo(padding.left, height - padding.bottom);
+                ctx.lineTo(width - padding.right, height - padding.bottom);
+                ctx.stroke();
+                
+                ctx.fillStyle = 'rgba(120, 160, 200, 0.8)';
+                ctx.font = '10px "Segoe UI", Arial';
+                ctx.textAlign = 'right';
+                const yTicks = 5;
+                for (let i = 0; i <= yTicks; i++) {
+                    const val = minVal + (maxVal - minVal) * (yTicks - i) / yTicks;
+                    const y = padding.top + (i / yTicks) * chartHeight;
+                    ctx.fillText(val.toFixed(1), padding.left - 8, y + 4);
+                }
+                
+                ctx.textAlign = 'center';
+                const xTicks = 6;
+                for (let i = 0; i <= xTicks; i++) {
+                    const idx = Math.round(i * 47 / xTicks);
+                    const x = padding.left + (idx / 47) * chartWidth;
+                    ctx.fillText(timeLabels[idx], x, height - padding.bottom + 18);
+                }
+            });
+        }
+        
+        const loader = new GLTFLoader();
+        
+        loader.load(
+            './260313-人体结构.glb',
+            (gltf) => {
+                const object = gltf.scene;
+                let index = 1;
+                
+                object.traverse((child) => {
+                    if (child.isMesh) {
+                        const keepIndex = keepRanges.indexOf(index) !== -1;
+                        const isBodyShell = index === 54;
+                        const baseColor = organColors[index] || organColor;
+                        const color = isBodyShell ? bodyColor : (keepIndex ? baseColor : bodyColor);
+                        const opacity = isBodyShell ? 0.15 : (keepIndex ? 0.5 : 0.15);
+                        const emissiveInt = 0.2;
+                        
+                        child.material = new THREE.MeshPhysicalMaterial({ 
+                            color: color,
+                            emissive: color,
+                            emissiveIntensity: emissiveInt,
+                            metalness: 0.2,
+                            roughness: 0.4,
+                            transparent: true,
+                            opacity: opacity,
+                            side: THREE.DoubleSide,
+                            transmission: isBodyShell ? 0.85 : 0.3,
+                            thickness: isBodyShell ? 0.1 : 0.3,
+                            depthWrite: !isBodyShell
+                        });
+                        
+                        const shouldVisible = keepRanges.includes(index) || index === 54;
+                        child.visible = shouldVisible;
+                        
+                        child.userData.orgIndex = index;
+                        
+                        if (index === 26) {
+                            const box = new THREE.Box3().setFromObject(child);
+                            heartPosition = box.getCenter(new THREE.Vector3());
+                        }
+                        
+                        organMeshes.push({ 
+                            mesh: child, 
+                            index: index, 
+                            name: child.name || '部件' + index,
+                            visible: shouldVisible
+                        });
+                        index++;
+                    }
+                });
+                
+                const box = new THREE.Box3().setFromObject(object);
+                const size = box.getSize(new THREE.Vector3());
+                const maxSize = Math.max(size.x, size.y, size.z);
+                object.scale.setScalar(8 / maxSize);
+                
+                const center = box.getCenter(new THREE.Vector3());
+                object.position.x = -center.x * (8 / maxSize);
+                object.position.y = -center.y * (8 / maxSize);
+                object.position.z = -center.z * (8 / maxSize);
+                
+                if (heartPosition) {
+                    heartPosition.x = heartPosition.x * (8 / maxSize) - center.x * (8 / maxSize);
+                    heartPosition.y = heartPosition.y * (8 / maxSize) - center.y * (8 / maxSize);
+                    heartPosition.z = heartPosition.z * (8 / maxSize) - center.z * (8 / maxSize);
+                }
+                
+                scene.add(object);
+                
+                loadHeartModel();
+            },
+            (xhr) => { console.log((xhr.loaded / xhr.total * 100) + '%'); },
+            (error) => { console.error(error); document.getElementById('loading').textContent = '加载失败'; }
+        );
+
+        function createControls() {
+            const list = document.getElementById('organ-list');
+            list.innerHTML = '';
+            
+            const btn = document.getElementById('toggle-panel-btn');
+            btn.onclick = () => {
+                const panel = document.getElementById('controls');
+                const isHidden = panel.style.display === 'none';
+                panel.style.display = isHidden ? 'block' : 'none';
+                btn.textContent = isHidden ? '隐藏面板' : '显示面板';
+            };
+            
+            const heartDiv = document.createElement('div');
+            heartDiv.className = 'organ-toggle';
+            heartDiv.innerHTML = `<input type="checkbox" id="toggle-heart" checked><span>0: Heart - 心脏</span>`;
+            list.appendChild(heartDiv);
+            
+            document.getElementById('toggle-heart').onchange = (e) => {
+                if (heartMesh) heartMesh.visible = e.target.checked;
+            };
+            
+            organMeshes.forEach((organ) => {
+                const organInfo = organNames[organ.index] || { en: 'Unknown', cn: '未知' };
+                const div = document.createElement('div');
+                div.className = 'organ-toggle';
+                const checked = organ.mesh.visible ? 'checked' : '';
+                div.innerHTML = `<input type="checkbox" id="toggle-${organ.index}" ${checked}><span>${organ.index}: ${organInfo.en} - ${organInfo.cn}</span>`;
+                list.appendChild(div);
+                
+                document.getElementById('toggle-' + organ.index).onchange = (e) => {
+                    organ.mesh.visible = e.target.checked;
+                };
+            });
+        }
+        
+        function loadHeartModel() {
+            loader.load(
+                './glb/心脏.glb',
+                (gltf) => {
+                    const object = gltf.scene;
+                    
+                    object.traverse((child) => {
+                        if (child.isMesh) {
+                            child.material = new THREE.MeshPhysicalMaterial({ 
+                                color: organColor,
+                                emissive: organColor,
+                                emissiveIntensity: 0.2,
+                                metalness: 0.2,
+                                roughness: 0.4,
+                                transparent: true,
+                                opacity: 0.5,
+                                side: THREE.DoubleSide
+                            });
+                        }
+                    });
+                    
+                    const box = new THREE.Box3().setFromObject(object);
+                    const size = box.getSize(new THREE.Vector3());
+                    const maxSize = Math.max(size.x, size.y, size.z);
+                    const scale = 0.75 / maxSize;
+                    object.scale.setScalar(scale);
+                    heartBaseScale = scale;
+                    
+                    if (heartPosition) {
+                        object.position.copy(heartPosition);
+                        object.position.z += 0.2;
+                    } else {
+                        object.position.set(0, 2, 0.2);
+                    }
+                    
+                    heartMesh = object;
+                    scene.add(object);
+                    
+                    createControls();
+                    document.getElementById('loading').style.display = 'none';
+                },
+                undefined,
+                (error) => {
+                    console.error('Error loading heart model:', error);
+                    createControls();
+                    document.getElementById('loading').style.display = 'none';
+                }
+            );
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (heartMesh) {
+                const time = Date.now() * 0.001;
+                const currentHR = indicatorValues['HR'] || 75;
+                const heartHz = currentHR / 60;
+                const scale = heartBaseScale * (1 + Math.sin(time * heartHz * Math.PI * 2) * 0.08);
+                heartMesh.scale.setScalar(scale);
+            }
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
